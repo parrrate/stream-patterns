@@ -51,9 +51,9 @@ pub async fn push<S: PatternStream>(
 pub async fn pull<S: PatternStream>(
     ready_r: Receiver<S>,
     done_s: Sender<Done<S>>,
-    payload_s: Sender<(S::Msg, QPromise)>,
+    msg_s: Sender<(S::Msg, QPromise)>,
 ) {
-    sub(ready_r, done_s, payload_s).await
+    sub(ready_r, done_s, msg_s).await
 }
 
 fn rotate<T, E>(result: Option<Result<T, E>>) -> Result<T, Option<E>> {
@@ -250,10 +250,10 @@ impl<S: PatternStream> Stream for Sub<S> {
 }
 
 impl<S: PatternStream> Sub<S> {
-    async fn run(&mut self, payload_s: Sender<(S::Msg, QPromise)>) {
-        let payload_q = QSender::new(payload_s);
+    async fn run(&mut self, msg_s: Sender<(S::Msg, QPromise)>) {
+        let msg_q = QSender::new(msg_s);
         while let Some(msg) = self.next().await {
-            if payload_q.request(msg).await.is_err() {
+            if msg_q.request(msg).await.is_err() {
                 break;
             }
         }
@@ -263,14 +263,14 @@ impl<S: PatternStream> Sub<S> {
 pub async fn sub<S: PatternStream>(
     ready_r: Receiver<S>,
     done_s: Sender<Done<S>>,
-    payload_s: Sender<(S::Msg, QPromise)>,
+    msg_s: Sender<(S::Msg, QPromise)>,
 ) {
     Sub {
         select: SelectAll::new(),
         ready_r,
         done_s,
     }
-    .run(payload_s)
+    .run(msg_s)
     .await
 }
 
@@ -334,7 +334,7 @@ struct Pub<S: PatternStream> {
     select: SelectAll<PubStream<S>>,
     ready_r: Receiver<S>,
     done_s: Sender<Done<S>>,
-    payload_r: Receiver<(S::Msg, QPromise)>,
+    msg_r: Receiver<(S::Msg, QPromise)>,
 }
 
 impl<S: PatternStream> Unpin for Pub<S> {}
@@ -355,7 +355,7 @@ impl<S: PatternStream> Stream for Pub<S> {
             });
         }
         while let Poll::Ready(Some(_)) = self.select.poll_next_unpin(cx) {}
-        self.payload_r.poll_next_unpin(cx)
+        self.msg_r.poll_next_unpin(cx)
     }
 }
 
@@ -379,13 +379,13 @@ impl<S: PatternStream> Pub<S> {
 pub async fn r#pub<S: PatternStream>(
     ready_r: Receiver<S>,
     done_s: Sender<Done<S>>,
-    payload_r: Receiver<(S::Msg, QPromise)>,
+    msg_r: Receiver<(S::Msg, QPromise)>,
 ) {
     Pub {
         select: SelectAll::new(),
         ready_r,
         done_s,
-        payload_r,
+        msg_r,
     }
     .run()
     .await
