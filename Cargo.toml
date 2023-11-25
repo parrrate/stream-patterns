@@ -7,3 +7,6 @@ edition = "2021"
 async-channel = "1.9.0"
 futures-io = "0.3.29"
 futures-util = { version = "0.3.29", features = ["sink"] }
+
+[dev-dependencies]
+futures-channel = "0.3.29"
