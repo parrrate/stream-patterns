@@ -12,13 +12,24 @@ use promise::{QPromise, QSender};
 
 pub mod promise;
 
-pub trait PatternStream:
-    Stream<Item = Result<Self::Msg, Self::Error>> + Sink<Self::Msg> + Unpin
-{
+pub trait ResultStream: Stream<Item = Result<Self::Msg, Self::Err>> {
     type Msg: Clone;
+    type Err;
 }
 
-type Error<S> = <S as Sink<<S as PatternStream>::Msg>>::Error;
+impl<S, T: Clone, E> ResultStream for S
+where
+    S: Stream<Item = Result<T, E>>,
+{
+    type Msg = T;
+    type Err = E;
+}
+
+pub trait PatternStream: ResultStream + Sink<Self::Msg, Error = Self::Err> + Unpin {}
+
+impl<S> PatternStream for S where S: ResultStream + Sink<Self::Msg, Error = Self::Err> + Unpin {}
+
+type Error<S> = <S as Sink<<S as ResultStream>::Msg>>::Error;
 
 type MaybeError<S> = Option<Error<S>>;
 
