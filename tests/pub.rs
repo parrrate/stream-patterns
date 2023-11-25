@@ -12,8 +12,8 @@ mod common;
 
 #[test]
 fn pub_two() {
-    let (pusher0, mut puller0) = channel_pair::<i32>(10);
-    let (pusher1, mut puller1) = channel_pair::<i32>(10);
+    let (pusher0, mut puller0) = channel_pair(10);
+    let (pusher1, mut puller1) = channel_pair(10);
     let (ready_s, ready_r) = bounded(10);
     let (done_s, done_r) = bounded(10);
     let (msg_s, msg_r) = bounded(10);
