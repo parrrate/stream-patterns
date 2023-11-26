@@ -12,6 +12,10 @@ impl<T> QPromise<T> {
     pub fn resolve(self, value: T) {
         let _ = self.sender.try_send(value);
     }
+
+    pub fn is_closed(&self) -> bool {
+        self.sender.is_closed()
+    }
 }
 
 impl QPromise {
