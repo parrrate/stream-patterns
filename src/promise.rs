@@ -26,6 +26,10 @@ impl<T> QPromise<T> {
     pub fn map<A, B>(f: impl Fn(A) -> B) -> impl Fn((A, Self)) -> (B, Self) {
         move |(a, promise)| (f(a), promise)
     }
+
+    pub fn new(sender: Sender<T>) -> Self {
+        Self { sender }
+    }
 }
 
 impl QPromise {
