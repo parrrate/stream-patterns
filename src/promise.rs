@@ -42,6 +42,10 @@ impl<T> QFuture<T> {
     pub async fn wait(self) -> Result<T, RecvError> {
         self.receiver.recv().await
     }
+
+    pub fn new(receiver: Receiver<T>) -> Self {
+        Self { receiver }
+    }
 }
 
 pub fn qpromise<T>() -> (QPromise<T>, QFuture<T>) {
