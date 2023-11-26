@@ -16,6 +16,12 @@ impl<T> QPromise<T> {
     pub fn is_closed(&self) -> bool {
         self.sender.is_closed()
     }
+
+    pub fn ignore() -> Self {
+        Self {
+            sender: bounded(1).0,
+        }
+    }
 }
 
 impl QPromise {
