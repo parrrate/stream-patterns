@@ -300,29 +300,27 @@ impl<S: PatternStream> Stream for PubStream<S> {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        match self.stream {
-            Some(ref mut stream) => match stream.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(_))) => {
-                    let _ = self.done_s.try_send(Err(None));
-                    self.stream = None;
-                    Poll::Ready(None)
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    let _ = self.done_s.try_send(Err(Some(e)));
-                    self.stream = None;
-                    Poll::Ready(None)
-                }
-                Poll::Ready(None) => {
-                    let _ = self.done_s.try_send(Err(None));
-                    self.stream = None;
-                    Poll::Ready(None)
-                }
-                Poll::Pending => {
-                    self.waker = Some(cx.waker().clone());
-                    Poll::Pending
-                }
-            },
-            None => Poll::Ready(None),
+        loop {
+            match self.stream {
+                Some(ref mut stream) => match stream.poll_next_unpin(cx) {
+                    Poll::Ready(Some(Ok(_))) => {}
+                    Poll::Ready(Some(Err(e))) => {
+                        let _ = self.done_s.try_send(Err(Some(e)));
+                        self.stream = None;
+                        break Poll::Ready(None);
+                    }
+                    Poll::Ready(None) => {
+                        let _ = self.done_s.try_send(Err(None));
+                        self.stream = None;
+                        break Poll::Ready(None);
+                    }
+                    Poll::Pending => {
+                        self.waker = Some(cx.waker().clone());
+                        break Poll::Pending;
+                    }
+                },
+                None => break Poll::Ready(None),
+            }
         }
     }
 }
