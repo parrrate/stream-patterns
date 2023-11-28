@@ -103,11 +103,24 @@ impl<S: PatternStream> Pub<S> {
         while futures.next().await.is_some() {}
     }
 
+    async fn close(&mut self) {
+        let mut futures = FuturesUnordered::new();
+        for stream in self.select.iter_mut() {
+            if let Some(ref mut stream) = stream.stream {
+                futures.push(stream.close());
+            }
+        }
+        while futures.next().await.is_some() {}
+        drop(futures);
+        self.select.clear();
+    }
+
     async fn run(&mut self) {
         while let Some((msg, promise)) = self.next().await {
             self.r#pub(msg).await;
             promise.done();
         }
+        self.close().await;
     }
 }
 

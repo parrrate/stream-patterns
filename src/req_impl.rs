@@ -257,6 +257,7 @@ impl<S: PatternStream> Req<S> {
 
     async fn run(&mut self) {
         while self.next().await.is_some() {}
+        self.streams.close().await;
     }
 }
 

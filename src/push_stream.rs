@@ -1,7 +1,10 @@
 use std::task::Poll;
 
 use async_channel::{bounded, Receiver, Sender};
-use futures_util::{stream::SelectAll, Stream, StreamExt};
+use futures_util::{
+    stream::{FuturesUnordered, SelectAll},
+    SinkExt, Stream, StreamExt,
+};
 
 use crate::{Done, PatternStream};
 
@@ -114,5 +117,17 @@ impl<S: PatternStream> PushStreams<S> {
 
     pub(crate) fn done(&self, done: Done<S>) {
         let _ = self.done_s.try_send(done);
+    }
+
+    pub(crate) async fn close(&mut self) {
+        let mut futures = FuturesUnordered::new();
+        for stream in self.select.iter_mut() {
+            if let Some(ref mut stream) = stream.stream {
+                futures.push(stream.close());
+            }
+        }
+        while futures.next().await.is_some() {}
+        drop(futures);
+        self.select.clear();
     }
 }
