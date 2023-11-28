@@ -6,10 +6,10 @@ use futures_util::{SinkExt, Stream, StreamExt};
 use crate::{
     promise::QPromise,
     push_stream::{PushStreams, Unlock},
-    Done, MaybePoll, PatternStream, StatePoll,
+    Done, MaybePoll, PatternStream, PrePoll, StatePoll,
 };
 
-enum PushState<S: PatternStream> {
+enum State<S: PatternStream> {
     Pending,
     Msg(S::Msg, QPromise),
     Stream(S, Sender<Unlock>),
@@ -17,13 +17,25 @@ enum PushState<S: PatternStream> {
     Sending(S::Msg, QPromise, S, Sender<Unlock>),
 }
 
-impl<S: PatternStream> Default for PushState<S> {
+impl<S: PatternStream> core::fmt::Display for State<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            State::Pending => write!(f, "pending"),
+            State::Msg(_, _) => write!(f, "msg"),
+            State::Stream(_, _) => write!(f, "stream"),
+            State::Readying(_, _, _, _) => write!(f, "readying"),
+            State::Sending(_, _, _, _) => write!(f, "sending"),
+        }
+    }
+}
+
+impl<S: PatternStream> Default for State<S> {
     fn default() -> Self {
         Self::Pending
     }
 }
 
-impl<S: PatternStream> PushState<S> {
+impl<S: PatternStream> State<S> {
     fn take(&mut self) -> Self {
         std::mem::take(self)
     }
@@ -32,7 +44,7 @@ impl<S: PatternStream> PushState<S> {
 struct Push<S: PatternStream> {
     streams: PushStreams<S>,
     msg_r: Receiver<(S::Msg, QPromise)>,
-    state: PushState<S>,
+    state: State<S>,
 }
 
 impl<S: PatternStream> Unpin for Push<S> {}
@@ -53,70 +65,70 @@ impl<S: PatternStream> Stream for Push<S> {
 }
 
 impl<S: PatternStream> Push<S> {
-    fn poll_msg(&mut self, cx: &mut std::task::Context<'_>) -> MaybePoll<Self> {
+    fn poll_msg(&mut self, cx: &mut std::task::Context<'_>) -> PrePoll {
         match self.state.take() {
-            PushState::Pending => match self.msg_r.poll_next_unpin(cx) {
+            State::Pending => match self.msg_r.poll_next_unpin(cx) {
                 Poll::Ready(Some((msg, promise))) => {
-                    self.state = PushState::Msg(msg, promise);
-                    None
+                    self.state = State::Msg(msg, promise);
+                    PrePoll::Continue
                 }
-                Poll::Ready(None) => Some(Poll::Ready(None)),
-                Poll::Pending => Some(Poll::Pending),
+                Poll::Ready(None) => PrePoll::Break,
+                Poll::Pending => PrePoll::Pending,
             },
-            PushState::Stream(stream, unlock_s) => match self.msg_r.poll_next_unpin(cx) {
+            State::Stream(stream, unlock_s) => match self.msg_r.poll_next_unpin(cx) {
                 Poll::Ready(Some((msg, promise))) => {
-                    self.state = PushState::Readying(msg, promise, stream, unlock_s);
-                    None
+                    self.state = State::Readying(msg, promise, stream, unlock_s);
+                    PrePoll::Continue
                 }
-                Poll::Ready(None) => Some(Poll::Ready(None)),
+                Poll::Ready(None) => PrePoll::Break,
                 Poll::Pending => {
-                    self.state = PushState::Stream(stream, unlock_s);
-                    Some(Poll::Pending)
+                    self.state = State::Stream(stream, unlock_s);
+                    PrePoll::Pending
                 }
             },
             state => {
                 self.state = state;
-                None
+                PrePoll::Continue
             }
         }
     }
 
-    fn poll_stream(&mut self, stream_poll: Poll<Option<(S, Sender<Unlock>)>>) -> MaybePoll<Self> {
-        match (self.state.take(), stream_poll) {
-            (PushState::Pending, Poll::Ready(Some((stream, unlock_s)))) => {
-                self.state = PushState::Stream(stream, unlock_s);
-                Some(Poll::Pending)
+    fn poll_stream(&mut self, cx: &mut std::task::Context<'_>) -> PrePoll {
+        match (self.state.take(), self.streams.poll_next_unpin(cx)) {
+            (State::Pending, Poll::Ready(Some((stream, unlock_s)))) => {
+                self.state = State::Stream(stream, unlock_s);
+                PrePoll::Continue
             }
-            (PushState::Pending, Poll::Ready(None)) => Some(Poll::Ready(None)),
-            (PushState::Pending, Poll::Pending) => Some(Poll::Pending),
-            (PushState::Msg(msg, promise), Poll::Ready(Some((stream, unlock_s)))) => {
-                self.state = PushState::Readying(msg, promise, stream, unlock_s);
-                None
+            (State::Pending, Poll::Ready(None)) => PrePoll::Break,
+            (State::Pending, Poll::Pending) => PrePoll::Pending,
+            (State::Msg(msg, promise), Poll::Ready(Some((stream, unlock_s)))) => {
+                self.state = State::Readying(msg, promise, stream, unlock_s);
+                PrePoll::Continue
             }
-            (PushState::Msg(_, _), Poll::Ready(None)) => Some(Poll::Ready(None)),
-            (PushState::Msg(_, _), Poll::Pending) => Some(Poll::Pending),
-            (PushState::Stream(_, _), Poll::Pending | Poll::Ready(None)) => Some(Poll::Pending),
+            (State::Msg(_, _), Poll::Ready(None)) => PrePoll::Break,
+            (State::Msg(_, _), Poll::Pending) => PrePoll::Pending,
+            (State::Stream(_, _), Poll::Pending | Poll::Ready(None)) => PrePoll::Pending,
             (_, Poll::Ready(Some(_))) => panic!("invalid state (stream yielded before unlock)"),
             (
-                state @ (PushState::Readying(_, _, _, _) | PushState::Sending(_, _, _, _)),
+                state @ (State::Readying(_, _, _, _) | State::Sending(_, _, _, _)),
                 Poll::Pending | Poll::Ready(None),
             ) => {
                 self.state = state;
-                None
+                PrePoll::Continue
             }
         }
     }
 
     fn poll_state(&mut self, cx: &mut std::task::Context<'_>) -> StatePoll<Self> {
         match self.state.take() {
-            PushState::Pending | PushState::Msg(_, _) | PushState::Stream(_, _) => {
+            State::Pending | State::Msg(_, _) | State::Stream(_, _) => {
                 panic!("invalid state (pushing)")
             }
-            PushState::Readying(msg, promise, mut stream, unlock_s) => {
+            State::Readying(msg, promise, mut stream, unlock_s) => {
                 match stream.poll_ready_unpin(cx) {
                     Poll::Ready(Ok(())) => match stream.start_send_unpin(msg.clone()) {
                         Ok(()) => {
-                            self.state = PushState::Sending(msg, promise, stream, unlock_s);
+                            self.state = State::Sending(msg, promise, stream, unlock_s);
                             StatePoll::Continue
                         }
                         Err(e) => {
@@ -124,13 +136,12 @@ impl<S: PatternStream> Push<S> {
                             let _ = unlock_s.try_send(Unlock::Unlock);
                             match self.streams.poll_next_unpin(cx) {
                                 Poll::Ready(Some((stream, unlock_s))) => {
-                                    self.state =
-                                        PushState::Readying(msg, promise, stream, unlock_s);
+                                    self.state = State::Readying(msg, promise, stream, unlock_s);
                                     StatePoll::Continue
                                 }
                                 Poll::Ready(None) => StatePoll::Poll(Poll::Ready(None)),
                                 Poll::Pending => {
-                                    self.state = PushState::Msg(msg, promise);
+                                    self.state = State::Msg(msg, promise);
                                     StatePoll::Poll(Poll::Pending)
                                 }
                             }
@@ -141,23 +152,23 @@ impl<S: PatternStream> Push<S> {
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {
-                                self.state = PushState::Readying(msg, promise, stream, unlock_s);
+                                self.state = State::Readying(msg, promise, stream, unlock_s);
                                 StatePoll::Continue
                             }
                             Poll::Ready(None) => StatePoll::Poll(Poll::Ready(None)),
                             Poll::Pending => {
-                                self.state = PushState::Msg(msg, promise);
+                                self.state = State::Msg(msg, promise);
                                 StatePoll::Poll(Poll::Pending)
                             }
                         }
                     }
                     Poll::Pending => {
-                        self.state = PushState::Readying(msg, promise, stream, unlock_s);
+                        self.state = State::Readying(msg, promise, stream, unlock_s);
                         StatePoll::Poll(Poll::Pending)
                     }
                 }
             }
-            PushState::Sending(msg, promise, mut stream, unlock_s) => {
+            State::Sending(msg, promise, mut stream, unlock_s) => {
                 match stream.poll_flush_unpin(cx) {
                     Poll::Ready(Ok(())) => {
                         promise.done();
@@ -170,18 +181,18 @@ impl<S: PatternStream> Push<S> {
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {
-                                self.state = PushState::Readying(msg, promise, stream, unlock_s);
+                                self.state = State::Readying(msg, promise, stream, unlock_s);
                                 StatePoll::Continue
                             }
                             Poll::Ready(None) => StatePoll::Poll(Poll::Ready(None)),
                             Poll::Pending => {
-                                self.state = PushState::Msg(msg, promise);
+                                self.state = State::Msg(msg, promise);
                                 StatePoll::Poll(Poll::Pending)
                             }
                         }
                     }
                     Poll::Pending => {
-                        self.state = PushState::Sending(msg, promise, stream, unlock_s);
+                        self.state = State::Sending(msg, promise, stream, unlock_s);
                         StatePoll::Poll(Poll::Pending)
                     }
                 }
@@ -200,12 +211,10 @@ impl<S: PatternStream> Push<S> {
     }
 
     fn poll_all(&mut self, cx: &mut std::task::Context<'_>) -> MaybePoll<Self> {
-        let stream_poll = self.streams.poll_next_unpin(cx);
-        if let Some(poll) = self.poll_msg(cx) {
-            return Some(poll);
-        }
-        if let Some(poll) = self.poll_stream(stream_poll) {
-            return Some(poll);
+        match (self.poll_stream(cx), self.poll_msg(cx)) {
+            (PrePoll::Break, _) | (_, PrePoll::Break) => return Some(Poll::Ready(None)),
+            (PrePoll::Pending, _) | (_, PrePoll::Pending) => return Some(Poll::Pending),
+            _ => {}
         }
         if let Some(poll) = self.poll_state_loop(cx) {
             return Some(poll);
@@ -228,7 +237,7 @@ pub async fn push<S: PatternStream>(
     Push {
         streams: PushStreams::new(ready_r, done_s, unlock_r),
         msg_r,
-        state: PushState::Pending,
+        state: State::Pending,
     }
     .run()
     .await

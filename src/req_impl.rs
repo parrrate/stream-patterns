@@ -6,10 +6,10 @@ use futures_util::{SinkExt, Stream, StreamExt};
 use crate::{
     promise::QPromise,
     push_stream::{PushStreams, Unlock},
-    Done, MaybePoll, PatternStream, StatePoll,
+    Done, MaybePoll, PatternStream, PrePoll, StatePoll,
 };
 
-enum ReqState<S: PatternStream> {
+enum State<S: PatternStream> {
     Pending,
     Msg(S::Msg, QPromise<S::Msg>),
     Stream(S, Sender<Unlock>),
@@ -18,13 +18,13 @@ enum ReqState<S: PatternStream> {
     Receiving(S::Msg, QPromise<S::Msg>, S, Sender<Unlock>),
 }
 
-impl<S: PatternStream> Default for ReqState<S> {
+impl<S: PatternStream> Default for State<S> {
     fn default() -> Self {
         Self::Pending
     }
 }
 
-impl<S: PatternStream> ReqState<S> {
+impl<S: PatternStream> State<S> {
     fn take(&mut self) -> Self {
         std::mem::take(self)
     }
@@ -33,7 +33,7 @@ impl<S: PatternStream> ReqState<S> {
 struct Req<S: PatternStream> {
     streams: PushStreams<S>,
     request_r: Receiver<(S::Msg, QPromise<S::Msg>)>,
-    state: ReqState<S>,
+    state: State<S>,
 }
 
 impl<S: PatternStream> Unpin for Req<S> {}
@@ -54,72 +54,72 @@ impl<S: PatternStream> Stream for Req<S> {
 }
 
 impl<S: PatternStream> Req<S> {
-    fn poll_msg(&mut self, cx: &mut std::task::Context<'_>) -> MaybePoll<Self> {
+    fn poll_msg(&mut self, cx: &mut std::task::Context<'_>) -> PrePoll {
         match self.state.take() {
-            ReqState::Pending => match self.request_r.poll_next_unpin(cx) {
+            State::Pending => match self.request_r.poll_next_unpin(cx) {
                 Poll::Ready(Some((msg, promise))) => {
-                    self.state = ReqState::Msg(msg, promise);
-                    None
+                    self.state = State::Msg(msg, promise);
+                    PrePoll::Continue
                 }
-                Poll::Ready(None) => Some(Poll::Ready(None)),
-                Poll::Pending => Some(Poll::Pending),
+                Poll::Ready(None) => PrePoll::Break,
+                Poll::Pending => PrePoll::Pending,
             },
-            ReqState::Stream(stream, unlock_s) => match self.request_r.poll_next_unpin(cx) {
+            State::Stream(stream, unlock_s) => match self.request_r.poll_next_unpin(cx) {
                 Poll::Ready(Some((msg, promise))) => {
-                    self.state = ReqState::Readying(msg, promise, stream, unlock_s);
-                    None
+                    self.state = State::Readying(msg, promise, stream, unlock_s);
+                    PrePoll::Continue
                 }
-                Poll::Ready(None) => Some(Poll::Ready(None)),
+                Poll::Ready(None) => PrePoll::Break,
                 Poll::Pending => {
-                    self.state = ReqState::Stream(stream, unlock_s);
-                    Some(Poll::Pending)
+                    self.state = State::Stream(stream, unlock_s);
+                    PrePoll::Pending
                 }
             },
             state => {
                 self.state = state;
-                None
+                PrePoll::Continue
             }
         }
     }
 
-    fn poll_stream(&mut self, stream_poll: Poll<Option<(S, Sender<Unlock>)>>) -> MaybePoll<Self> {
-        match (self.state.take(), stream_poll) {
-            (ReqState::Pending, Poll::Ready(Some((stream, unlock_s)))) => {
-                self.state = ReqState::Stream(stream, unlock_s);
-                Some(Poll::Pending)
+    fn poll_stream(&mut self, cx: &mut std::task::Context<'_>) -> PrePoll {
+        match (self.state.take(), self.streams.poll_next_unpin(cx)) {
+            (State::Pending, Poll::Ready(Some((stream, unlock_s)))) => {
+                self.state = State::Stream(stream, unlock_s);
+                PrePoll::Continue
             }
-            (ReqState::Pending, Poll::Ready(None)) => Some(Poll::Ready(None)),
-            (ReqState::Pending, Poll::Pending) => Some(Poll::Pending),
-            (ReqState::Msg(msg, promise), Poll::Ready(Some((stream, unlock_s)))) => {
-                self.state = ReqState::Readying(msg, promise, stream, unlock_s);
-                None
+            (State::Pending, Poll::Ready(None)) => PrePoll::Break,
+            (State::Pending, Poll::Pending) => PrePoll::Pending,
+            (State::Msg(msg, promise), Poll::Ready(Some((stream, unlock_s)))) => {
+                self.state = State::Readying(msg, promise, stream, unlock_s);
+                PrePoll::Continue
             }
-            (ReqState::Msg(_, _), Poll::Ready(None)) => Some(Poll::Ready(None)),
-            (ReqState::Msg(_, _), Poll::Pending) => Some(Poll::Pending),
-            (ReqState::Stream(_, _), Poll::Pending | Poll::Ready(None)) => Some(Poll::Pending),
+            (State::Msg(_, _), Poll::Ready(None)) => PrePoll::Break,
+            (State::Msg(_, _), Poll::Pending) => PrePoll::Pending,
+            (State::Stream(_, _), Poll::Pending | Poll::Ready(None)) => PrePoll::Pending,
             (_, Poll::Ready(Some(_))) => panic!("invalid state (stream yielded before unlock)"),
             (
-                state @ (ReqState::Readying(_, _, _, _)
-                | ReqState::Sending(_, _, _, _)
-                | ReqState::Receiving(_, _, _, _)),
+                state @ (State::Readying(_, _, _, _)
+                | State::Sending(_, _, _, _)
+                | State::Receiving(_, _, _, _)),
                 Poll::Pending | Poll::Ready(None),
             ) => {
                 self.state = state;
-                None
+                PrePoll::Continue
             }
         }
     }
 
     fn poll_state(&mut self, cx: &mut std::task::Context<'_>) -> StatePoll<Self> {
         match self.state.take() {
-            ReqState::Pending | ReqState::Msg(_, _) | ReqState::Stream(_, _) => {
+            State::Pending | State::Msg(_, _) | State::Stream(_, _) => {
                 panic!("invalid state (requesting)")
             }
-            ReqState::Readying(msg, promise, mut stream, unlock_s) => {
+            State::Readying(msg, promise, mut stream, unlock_s) => {
                 match stream.poll_ready_unpin(cx) {
                     Poll::Ready(Ok(())) => match stream.start_send_unpin(msg.clone()) {
                         Ok(()) => {
-                            self.state = ReqState::Sending(msg, promise, stream, unlock_s);
+                            self.state = State::Sending(msg, promise, stream, unlock_s);
                             StatePoll::Continue
                         }
                         Err(e) => {
@@ -127,12 +127,12 @@ impl<S: PatternStream> Req<S> {
                             let _ = unlock_s.try_send(Unlock::Unlock);
                             match self.streams.poll_next_unpin(cx) {
                                 Poll::Ready(Some((stream, unlock_s))) => {
-                                    self.state = ReqState::Readying(msg, promise, stream, unlock_s);
+                                    self.state = State::Readying(msg, promise, stream, unlock_s);
                                     StatePoll::Continue
                                 }
                                 Poll::Ready(None) => StatePoll::Poll(Poll::Ready(None)),
                                 Poll::Pending => {
-                                    self.state = ReqState::Msg(msg, promise);
+                                    self.state = State::Msg(msg, promise);
                                     StatePoll::Poll(Poll::Pending)
                                 }
                             }
@@ -143,26 +143,26 @@ impl<S: PatternStream> Req<S> {
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {
-                                self.state = ReqState::Readying(msg, promise, stream, unlock_s);
+                                self.state = State::Readying(msg, promise, stream, unlock_s);
                                 StatePoll::Continue
                             }
                             Poll::Ready(None) => StatePoll::Poll(Poll::Ready(None)),
                             Poll::Pending => {
-                                self.state = ReqState::Msg(msg, promise);
+                                self.state = State::Msg(msg, promise);
                                 StatePoll::Poll(Poll::Pending)
                             }
                         }
                     }
                     Poll::Pending => {
-                        self.state = ReqState::Sending(msg, promise, stream, unlock_s);
+                        self.state = State::Sending(msg, promise, stream, unlock_s);
                         StatePoll::Poll(Poll::Pending)
                     }
                 }
             }
-            ReqState::Sending(msg, promise, mut stream, unlock_s) => {
+            State::Sending(msg, promise, mut stream, unlock_s) => {
                 match stream.poll_flush_unpin(cx) {
                     Poll::Ready(Ok(())) => {
-                        self.state = ReqState::Receiving(msg, promise, stream, unlock_s);
+                        self.state = State::Receiving(msg, promise, stream, unlock_s);
                         StatePoll::Continue
                     }
                     Poll::Ready(Err(e)) => {
@@ -170,23 +170,23 @@ impl<S: PatternStream> Req<S> {
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {
-                                self.state = ReqState::Readying(msg, promise, stream, unlock_s);
+                                self.state = State::Readying(msg, promise, stream, unlock_s);
                                 StatePoll::Continue
                             }
                             Poll::Ready(None) => StatePoll::Poll(Poll::Ready(None)),
                             Poll::Pending => {
-                                self.state = ReqState::Msg(msg, promise);
+                                self.state = State::Msg(msg, promise);
                                 StatePoll::Poll(Poll::Pending)
                             }
                         }
                     }
                     Poll::Pending => {
-                        self.state = ReqState::Sending(msg, promise, stream, unlock_s);
+                        self.state = State::Sending(msg, promise, stream, unlock_s);
                         StatePoll::Poll(Poll::Pending)
                     }
                 }
             }
-            ReqState::Receiving(msg, promise, mut stream, unlock_s) => {
+            State::Receiving(msg, promise, mut stream, unlock_s) => {
                 match stream.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(msg))) => {
                         promise.resolve(msg);
@@ -199,12 +199,12 @@ impl<S: PatternStream> Req<S> {
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {
-                                self.state = ReqState::Readying(msg, promise, stream, unlock_s);
+                                self.state = State::Readying(msg, promise, stream, unlock_s);
                                 StatePoll::Continue
                             }
                             Poll::Ready(None) => StatePoll::Poll(Poll::Ready(None)),
                             Poll::Pending => {
-                                self.state = ReqState::Msg(msg, promise);
+                                self.state = State::Msg(msg, promise);
                                 StatePoll::Poll(Poll::Pending)
                             }
                         }
@@ -214,18 +214,18 @@ impl<S: PatternStream> Req<S> {
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {
-                                self.state = ReqState::Readying(msg, promise, stream, unlock_s);
+                                self.state = State::Readying(msg, promise, stream, unlock_s);
                                 StatePoll::Continue
                             }
                             Poll::Ready(None) => StatePoll::Poll(Poll::Ready(None)),
                             Poll::Pending => {
-                                self.state = ReqState::Msg(msg, promise);
+                                self.state = State::Msg(msg, promise);
                                 StatePoll::Poll(Poll::Pending)
                             }
                         }
                     }
                     Poll::Pending => {
-                        self.state = ReqState::Receiving(msg, promise, stream, unlock_s);
+                        self.state = State::Receiving(msg, promise, stream, unlock_s);
                         StatePoll::Poll(Poll::Pending)
                     }
                 }
@@ -244,12 +244,10 @@ impl<S: PatternStream> Req<S> {
     }
 
     fn poll_all(&mut self, cx: &mut std::task::Context<'_>) -> MaybePoll<Self> {
-        let stream_poll = self.streams.poll_next_unpin(cx);
-        if let Some(poll) = self.poll_msg(cx) {
-            return Some(poll);
-        }
-        if let Some(poll) = self.poll_stream(stream_poll) {
-            return Some(poll);
+        match (self.poll_stream(cx), self.poll_msg(cx)) {
+            (PrePoll::Break, _) | (_, PrePoll::Break) => return Some(Poll::Ready(None)),
+            (PrePoll::Pending, _) | (_, PrePoll::Pending) => return Some(Poll::Pending),
+            _ => {}
         }
         if let Some(poll) = self.poll_state_loop(cx) {
             return Some(poll);
@@ -272,7 +270,7 @@ pub async fn req<S: PatternStream>(
     Req {
         streams: PushStreams::new(ready_r, done_s, unlock_r),
         request_r,
-        state: ReqState::Pending,
+        state: State::Pending,
     }
     .run()
     .await

@@ -79,7 +79,10 @@ impl<S: PatternStream> Stream for PushStreams<S> {
         while let Poll::Ready(Some(stream)) = self.ready_r.poll_next_unpin(cx) {
             self.add(stream);
         }
-        self.select.poll_next_unpin(cx)
+        match self.select.poll_next_unpin(cx) {
+            Poll::Ready(None) if !self.ready_r.is_closed() => Poll::Pending,
+            poll => poll,
+        }
     }
 }
 

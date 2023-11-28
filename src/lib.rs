@@ -44,3 +44,10 @@ enum StatePoll<T: Stream> {
     Continue,
     Break,
 }
+
+#[derive(Debug)]
+enum PrePoll {
+    Pending,
+    Break,
+    Continue,
+}
