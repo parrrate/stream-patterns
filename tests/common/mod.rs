@@ -6,6 +6,7 @@ use std::{
 use futures_channel::mpsc::{channel, Receiver, SendError, Sender};
 use futures_util::{Sink, Stream, StreamExt};
 
+#[derive(Debug)]
 pub struct Channel<T> {
     sender: Sender<T>,
     receiver: Receiver<T>,

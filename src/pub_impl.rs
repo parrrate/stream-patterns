@@ -31,12 +31,12 @@ impl<S: PatternStream> Stream for PubStream<S> {
                 Some(ref mut stream) => match stream.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(_))) => {}
                     Poll::Ready(Some(Err(e))) => {
-                        let _ = self.done_s.try_send(Err(Some(e)));
+                        let _ = self.done_s.try_send(Some(e));
                         self.stream = None;
                         break Poll::Ready(None);
                     }
                     Poll::Ready(None) => {
-                        let _ = self.done_s.try_send(Err(None));
+                        let _ = self.done_s.try_send(None);
                         self.stream = None;
                         break Poll::Ready(None);
                     }
@@ -55,7 +55,7 @@ impl<S: PatternStream> PubStream<S> {
     async fn r#pub(&mut self, msg: S::Msg) {
         if let Some(ref mut stream) = self.stream {
             if let Err(e) = stream.send(msg).await {
-                let _ = self.done_s.try_send(Err(Some(e)));
+                let _ = self.done_s.try_send(Some(e));
                 self.stream = None;
                 if let Some(waker) = self.waker.take() {
                     waker.wake();

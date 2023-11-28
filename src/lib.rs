@@ -35,9 +35,7 @@ impl<S> PatternStream for S where S: ResultStream + Sink<Self::Msg, Error = Self
 
 type Error<S> = <S as Sink<<S as ResultStream>::Msg>>::Error;
 
-type MaybeError<S> = Option<Error<S>>;
-
-type Done<S> = Result<S, MaybeError<S>>;
+type Done<S> = Option<Error<S>>;
 
 type MaybePoll<T> = Option<Poll<Option<<T as Stream>::Item>>>;
 

@@ -26,11 +26,11 @@ impl<S: PatternStream> Stream for RepStream<S> {
             Some(mut stream) => match stream.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(msg))) => Poll::Ready(Some((stream, msg))),
                 Poll::Ready(Some(Err(e))) => {
-                    let _ = self.done_s.try_send(Err(Some(e)));
+                    let _ = self.done_s.try_send(Some(e));
                     Poll::Ready(None)
                 }
                 Poll::Ready(None) => {
-                    let _ = self.done_s.try_send(Err(None));
+                    let _ = self.done_s.try_send(None);
                     Poll::Ready(None)
                 }
                 Poll::Pending => {
@@ -59,11 +59,7 @@ impl<S: PatternStream> Stream for Rep<S> {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         while let Poll::Ready(Some(stream)) = self.ready_r.poll_next_unpin(cx) {
-            let done_s = self.done_s.clone();
-            self.select.push(RepStream {
-                stream: Some(stream),
-                done_s,
-            });
+            self.add(stream);
         }
         match self.select.poll_next_unpin(cx) {
             Poll::Ready(None) if !self.ready_r.is_closed() => Poll::Pending,
@@ -73,22 +69,30 @@ impl<S: PatternStream> Stream for Rep<S> {
 }
 
 impl<S: PatternStream> Rep<S> {
+    fn add(&mut self, stream: S) {
+        let stream = RepStream {
+            stream: Some(stream),
+            done_s: self.done_s.clone(),
+        };
+        self.select.push(stream);
+    }
+
     async fn run(&mut self, request_s: Sender<(S::Msg, QPromise<S::Msg>)>) {
         let request_q = QSender::new(request_s);
         while let Some((mut stream, msg)) = self.next().await {
             let msg = match request_q.request(msg).await {
                 Ok(msg) => msg,
                 Err(_) => {
-                    let _ = self.done_s.send(Err(None)).await;
+                    let _ = self.done_s.send(None).await;
                     continue;
                 }
             };
             match stream.send(msg).await {
                 Ok(_) => {
-                    let _ = self.done_s.send(Ok(stream)).await;
+                    self.add(stream);
                 }
                 Err(e) => {
-                    let _ = self.done_s.send(Err(Some(e))).await;
+                    let _ = self.done_s.send(Some(e)).await;
                 }
             }
         }

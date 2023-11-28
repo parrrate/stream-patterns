@@ -26,5 +26,5 @@ fn pull_one() {
     ready_s.close();
     drop(pusher);
     assert!(pulling.as_mut().poll(&mut cx).is_ready());
-    assert!(done_r.try_recv().unwrap().is_err());
+    assert!(done_r.try_recv().unwrap().is_none());
 }

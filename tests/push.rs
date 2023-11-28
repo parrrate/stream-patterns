@@ -26,7 +26,7 @@ fn push_one() {
     msg_s.close();
     assert!(pushing.as_mut().poll(&mut cx).is_ready());
     assert!(pin!(future.wait()).poll(&mut cx).is_ready());
-    assert!(done_r.try_recv().unwrap().is_ok());
+    assert!(done_r.try_recv().is_err());
     assert_eq!(
         pin!(puller.next()).poll(&mut cx),
         Poll::Ready(Some(Ok(426)))

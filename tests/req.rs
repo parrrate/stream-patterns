@@ -32,5 +32,5 @@ fn req_one() {
     assert!(pin!(replier.send(216)).poll(&mut cx).is_ready());
     assert!(requesting.as_mut().poll(&mut cx).is_ready());
     assert_eq!(pin!(future.wait()).poll(&mut cx), Poll::Ready(Ok(216)));
-    assert!(done_r.try_recv().unwrap().is_ok());
+    assert!(done_r.try_recv().is_err());
 }

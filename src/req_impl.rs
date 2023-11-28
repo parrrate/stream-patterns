@@ -123,7 +123,7 @@ impl<S: PatternStream> Req<S> {
                             StatePoll::Continue
                         }
                         Err(e) => {
-                            self.streams.done(Err(Some(e)));
+                            self.streams.done(Some(e));
                             let _ = unlock_s.try_send(Unlock::Unlock);
                             match self.streams.poll_next_unpin(cx) {
                                 Poll::Ready(Some((stream, unlock_s))) => {
@@ -139,7 +139,7 @@ impl<S: PatternStream> Req<S> {
                         }
                     },
                     Poll::Ready(Err(e)) => {
-                        self.streams.done(Err(Some(e)));
+                        self.streams.done(Some(e));
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {
@@ -166,7 +166,7 @@ impl<S: PatternStream> Req<S> {
                         StatePoll::Continue
                     }
                     Poll::Ready(Err(e)) => {
-                        self.streams.done(Err(Some(e)));
+                        self.streams.done(Some(e));
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {
@@ -190,12 +190,12 @@ impl<S: PatternStream> Req<S> {
                 match stream.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(msg))) => {
                         promise.resolve(msg);
-                        self.streams.done(Ok(stream));
+                        self.streams.add(stream);
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         StatePoll::Break
                     }
                     Poll::Ready(Some(Err(e))) => {
-                        self.streams.done(Err(Some(e)));
+                        self.streams.done(Some(e));
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {
@@ -210,7 +210,7 @@ impl<S: PatternStream> Req<S> {
                         }
                     }
                     Poll::Ready(None) => {
-                        self.streams.done(Err(None));
+                        self.streams.done(None);
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {

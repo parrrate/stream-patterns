@@ -26,10 +26,12 @@ fn rep_one() {
     let (request, promise) = request_r.try_recv().unwrap();
     promise.resolve(request - 210);
     ready_s.close();
-    assert!(replying.as_mut().poll(&mut cx).is_ready());
-    assert!(done_r.try_recv().unwrap().is_ok());
+    assert!(replying.as_mut().poll(&mut cx).is_pending());
     assert_eq!(
         pin!(requester.next()).poll(&mut cx),
         Poll::Ready(Some(Ok(216)))
     );
+    drop(requester);
+    assert!(replying.as_mut().poll(&mut cx).is_ready());
+    assert!(done_r.try_recv().unwrap().is_none());
 }

@@ -120,7 +120,7 @@ impl<S: PatternStream> Push<S> {
                             StatePoll::Continue
                         }
                         Err(e) => {
-                            self.streams.done(Err(Some(e)));
+                            self.streams.done(Some(e));
                             let _ = unlock_s.try_send(Unlock::Unlock);
                             match self.streams.poll_next_unpin(cx) {
                                 Poll::Ready(Some((stream, unlock_s))) => {
@@ -137,7 +137,7 @@ impl<S: PatternStream> Push<S> {
                         }
                     },
                     Poll::Ready(Err(e)) => {
-                        self.streams.done(Err(Some(e)));
+                        self.streams.done(Some(e));
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {
@@ -161,12 +161,12 @@ impl<S: PatternStream> Push<S> {
                 match stream.poll_flush_unpin(cx) {
                     Poll::Ready(Ok(())) => {
                         promise.done();
-                        self.streams.done(Ok(stream));
+                        self.streams.add(stream);
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         StatePoll::Break
                     }
                     Poll::Ready(Err(e)) => {
-                        self.streams.done(Err(Some(e)));
+                        self.streams.done(Some(e));
                         let _ = unlock_s.try_send(Unlock::Unlock);
                         match self.streams.poll_next_unpin(cx) {
                             Poll::Ready(Some((stream, unlock_s))) => {

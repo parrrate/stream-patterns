@@ -1,3 +1,10 @@
+//! One-way one-time communication
+//!
+//! See also:
+//! * <https://docs.rs/pinky-swear/latest/pinky_swear/index.html>
+//! * <https://docs.rs/futures/latest/futures/channel/oneshot/index.html>
+//! * <https://docs.rs/tokio/latest/tokio/sync/oneshot/index.html>
+
 use async_channel::{bounded, Receiver, RecvError, Sender};
 
 pub struct QPromise<T = ()> {

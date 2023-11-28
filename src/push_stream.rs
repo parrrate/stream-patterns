@@ -33,12 +33,12 @@ impl<S: PatternStream> Stream for PushStream<S> {
                         self.stream = Some(stream);
                     }
                     Poll::Ready(Some(Err(e))) => {
-                        let _ = self.done_s.try_send(Err(Some(e)));
+                        let _ = self.done_s.try_send(Some(e));
                         let _ = self.unlock_s.try_send(Unlock::Skip(self.unlock_r.clone()));
                         break Poll::Ready(None);
                     }
                     Poll::Ready(None) => {
-                        let _ = self.done_s.try_send(Err(None));
+                        let _ = self.done_s.try_send(None);
                         let _ = self.unlock_s.try_send(Unlock::Skip(self.unlock_r.clone()));
                         break Poll::Ready(None);
                     }
@@ -84,7 +84,7 @@ impl<S: PatternStream> Stream for PushStreams<S> {
 }
 
 impl<S: PatternStream> PushStreams<S> {
-    fn add(&mut self, stream: S) {
+    pub(crate) fn add(&mut self, stream: S) {
         let (unlock_s, unlock_r) = bounded(1);
         let stream = PushStream {
             stream: Some(stream),

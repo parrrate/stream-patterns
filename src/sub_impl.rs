@@ -25,11 +25,11 @@ impl<S: PatternStream> Stream for SubStream<S> {
         match self.stream.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(msg))) => Poll::Ready(Some(msg)),
             Poll::Ready(Some(Err(e))) => {
-                let _ = self.done_s.try_send(Err(Some(e)));
+                let _ = self.done_s.try_send(Some(e));
                 Poll::Ready(None)
             }
             Poll::Ready(None) => {
-                let _ = self.done_s.try_send(Err(None));
+                let _ = self.done_s.try_send(None);
                 Poll::Ready(None)
             }
             Poll::Pending => Poll::Pending,
