@@ -1,7 +1,10 @@
 use std::task::Poll;
 
 use async_channel::{Receiver, Sender};
-use futures_util::{stream::SelectAll, Stream, StreamExt};
+use futures_util::{
+    stream::{FuturesUnordered, SelectAll},
+    SinkExt, Stream, StreamExt,
+};
 
 use crate::{
     promise::{QPromise, QSender},
@@ -64,6 +67,16 @@ impl<S: PatternStream> Stream for Sub<S> {
 }
 
 impl<S: PatternStream> Sub<S> {
+    async fn close(&mut self) {
+        let mut futures = FuturesUnordered::new();
+        for stream in self.select.iter_mut() {
+            futures.push(stream.stream.close());
+        }
+        while futures.next().await.is_some() {}
+        drop(futures);
+        self.select.clear();
+    }
+
     async fn run(&mut self, msg_s: Sender<(S::Msg, QPromise)>) {
         let msg_q = QSender::new(msg_s);
         while let Some(msg) = self.next().await {
@@ -71,6 +84,7 @@ impl<S: PatternStream> Sub<S> {
                 break;
             }
         }
+        self.close().await;
     }
 }
 
