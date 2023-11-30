@@ -130,4 +130,18 @@ impl<S: PatternStream> PushStreams<S> {
         drop(futures);
         self.select.clear();
     }
+
+    pub(crate) fn drain(&mut self) -> impl Iterator<Item = S> {
+        if self.select.is_empty() {
+            None
+        } else {
+            Some(
+                std::mem::take(&mut self.select)
+                    .into_iter()
+                    .filter_map(|stream| stream.stream),
+            )
+        }
+        .into_iter()
+        .flatten()
+    }
 }
