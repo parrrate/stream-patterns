@@ -6,10 +6,10 @@ use std::{
 use async_channel::{bounded, Receiver, Sender};
 use futures_util::{
     stream::{FuturesUnordered, SelectAll},
-    Future, Sink, SinkExt, Stream, StreamExt,
+    Sink, SinkExt, Stream, StreamExt,
 };
 
-use crate::{promise::QPromise, Done, Error, PatternStream};
+use crate::{owned_close::OwnedClose, promise::QPromise, Done, PatternStream};
 
 struct PubStream<S: PatternStream> {
     stream: Option<S>,
@@ -114,26 +114,11 @@ impl<S: PatternStream> PubStream<S> {
     }
 }
 
-struct PubClose<S>(S);
-
-impl<S: PatternStream> Unpin for PubClose<S> {}
-
-impl<S: PatternStream> Future for PubClose<S> {
-    type Output = Result<(), Error<S>>;
-
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Self::Output> {
-        self.0.poll_close_unpin(cx)
-    }
-}
-
 struct Pub<S: PatternStream> {
     select: SelectAll<PubStream<S>>,
     ready_r: Receiver<S>,
     done_s: Sender<Done<S>>,
-    closing: FuturesUnordered<PubClose<S>>,
+    closing: FuturesUnordered<OwnedClose<S>>,
     readying: Option<Receiver<Infallible>>,
     flushing: Option<Receiver<Infallible>>,
 }
@@ -216,7 +201,7 @@ impl<S: PatternStream> Sink<S::Msg> for Pub<S> {
             if !self.select.is_empty() {
                 for stream in std::mem::take(&mut self.select) {
                     if let Some(stream) = stream.stream {
-                        self.closing.push(PubClose(stream));
+                        self.closing.push(OwnedClose(stream));
                     }
                 }
             } else if !self.closing.is_empty() {

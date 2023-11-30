@@ -7,6 +7,7 @@ pub use self::{
     pub_impl::r#pub, pull_impl::pull, push_impl::push, rep_impl::rep, req_impl::req, sub_impl::sub,
 };
 
+mod owned_close;
 pub mod promise;
 mod pub_impl;
 mod pull_impl;
