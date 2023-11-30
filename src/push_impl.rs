@@ -106,8 +106,14 @@ impl<S: PatternStream> Push<S> {
                 PrePoll::Continue
             }
             (State::Msg(_, _), Poll::Ready(None)) => PrePoll::Break,
-            (State::Msg(_, _), Poll::Pending) => PrePoll::Pending,
-            (State::Stream(_, _), Poll::Pending | Poll::Ready(None)) => PrePoll::Pending,
+            (State::Msg(msg, promise), Poll::Pending) => {
+                self.state = State::Msg(msg, promise);
+                PrePoll::Pending
+            }
+            (State::Stream(stream, unlock_s), Poll::Pending | Poll::Ready(None)) => {
+                self.state = State::Stream(stream, unlock_s);
+                PrePoll::Pending
+            }
             (_, Poll::Ready(Some(_))) => panic!("invalid state (stream yielded before unlock)"),
             (
                 state @ (State::Readying(_, _, _, _) | State::Sending(_, _, _, _)),
@@ -224,6 +230,15 @@ impl<S: PatternStream> Push<S> {
 
     async fn run(&mut self) {
         while self.next().await.is_some() {}
+        match self.state.take() {
+            State::Pending | State::Msg(_, _) => {}
+            State::Stream(stream, _)
+            | State::Readying(_, _, stream, _)
+            | State::Sending(_, _, stream, _) => {
+                let mut stream = stream;
+                let _ = stream.close().await;
+            }
+        }
         self.streams.close().await;
     }
 }
