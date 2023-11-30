@@ -28,7 +28,7 @@ fn pub_two() {
     msg_s.close();
     assert!(publishing.as_mut().poll(&mut cx).is_ready());
     assert!(pin!(future.wait()).poll(&mut cx).is_ready());
-    assert!(done_r.try_recv().is_err());
+    assert!(done_r.try_recv().unwrap().is_none());
     assert_eq!(
         pin!(subscriber0.next()).poll(&mut cx),
         Poll::Ready(Some(Ok(426)))
