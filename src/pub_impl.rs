@@ -26,9 +26,9 @@ impl<S: PatternStream> Stream for PubStream<S> {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        loop {
-            match self.stream {
-                Some(ref mut stream) => match stream.poll_next_unpin(cx) {
+        match self.stream {
+            Some(ref mut stream) => loop {
+                match stream.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(_))) => {}
                     Poll::Ready(Some(Err(e))) => {
                         let _ = self.done_s.try_send(Some(e));
@@ -44,9 +44,9 @@ impl<S: PatternStream> Stream for PubStream<S> {
                         self.waker = Some(cx.waker().clone());
                         break Poll::Pending;
                     }
-                },
-                None => break Poll::Ready(None),
-            }
+                }
+            },
+            None => Poll::Ready(None),
         }
     }
 }
