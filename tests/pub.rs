@@ -43,7 +43,6 @@ fn pub_two() {
 
 fn pub_two_seed(seed: u64) {
     let mut runner = Runner::new(seed);
-    let mut cx = Context::from_waker(futures_util::task::noop_waker_ref());
     let (publisher0, subscriber0) = runner.channel();
     let (publisher1, subscriber1) = runner.channel();
     let (ready_s, ready_r) = bounded(10);
@@ -54,10 +53,10 @@ fn pub_two_seed(seed: u64) {
     ready_s.try_send(publisher1).unwrap();
     let (promise, future) = qpromise();
     msg_s.try_send((426, promise)).unwrap();
-    runner.pending_in(100, &mut cx, publishing.as_mut());
+    runner.pending_in(100, publishing.as_mut());
     msg_s.close();
-    runner.ready_in(100, &mut cx, publishing.as_mut());
-    assert!(pin!(future.wait()).poll(&mut cx).is_ready());
+    runner.ready_in(100, publishing.as_mut());
+    assert!(runner.poll(pin!(future.wait())).is_ready());
     assert!(done_r.try_recv().unwrap().is_none());
     assert!(done_r.try_recv().unwrap().is_none());
     assert_eq!(subscriber0.recv(), Some(426));

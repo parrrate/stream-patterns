@@ -36,7 +36,6 @@ fn push_one() {
 
 fn push_one_seed(seed: u64) {
     let mut runner = Runner::new(seed);
-    let mut cx = Context::from_waker(futures_util::task::noop_waker_ref());
     let (pusher, puller) = runner.channel();
     let (ready_s, ready_r) = bounded(10);
     let (done_s, done_r) = bounded(10);
@@ -45,10 +44,10 @@ fn push_one_seed(seed: u64) {
     ready_s.try_send(pusher).unwrap();
     let (promise, future) = qpromise();
     msg_s.try_send((426, promise)).unwrap();
-    runner.pending_in(100, &mut cx, pushing.as_mut());
+    runner.pending_in(100, pushing.as_mut());
     msg_s.close();
-    runner.ready_in(100, &mut cx, pushing.as_mut());
-    assert!(pin!(future.wait()).poll(&mut cx).is_ready());
+    runner.ready_in(100, pushing.as_mut());
+    assert!(runner.poll(pin!(future.wait())).is_ready());
     assert!(done_r.try_recv().is_err());
     assert_eq!(puller.recv(), Some(426));
 }

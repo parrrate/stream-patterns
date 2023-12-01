@@ -66,6 +66,7 @@ pub struct Runner {
     set: PopSet<Sender<Extra>>,
     receiver: Receiver<Sender<Extra>>,
     sender: Sender<Sender<Extra>>,
+    cx: std::task::Context<'static>,
 }
 
 impl Runner {
@@ -78,6 +79,7 @@ impl Runner {
             },
             receiver,
             sender,
+            cx: std::task::Context::from_waker(futures_util::task::noop_waker_ref()),
         }
     }
 
@@ -88,14 +90,9 @@ impl Runner {
         self.set.pop().is_some()
     }
 
-    pub fn pending_in<F: Future>(
-        &mut self,
-        steps: usize,
-        cx: &mut std::task::Context<'_>,
-        mut fut: std::pin::Pin<&mut F>,
-    ) {
+    pub fn pending_in<F: Future>(&mut self, steps: usize, mut fut: std::pin::Pin<&mut F>) {
         for _ in 0..steps {
-            if fut.as_mut().poll(cx).is_ready() {
+            if self.poll(fut.as_mut()).is_ready() {
                 panic!("unexpected ready");
             }
             if !self.step() {
@@ -108,16 +105,19 @@ impl Runner {
     pub fn ready_in<F: Future>(
         &mut self,
         steps: usize,
-        cx: &mut std::task::Context<'_>,
         mut fut: std::pin::Pin<&mut F>,
     ) -> F::Output {
         for _ in 0..steps {
-            if let Poll::Ready(value) = fut.as_mut().poll(cx) {
+            if let Poll::Ready(value) = self.poll(fut.as_mut()) {
                 return value;
             }
             assert!(self.step(), "cannot proceed")
         }
         panic!("timed out")
+    }
+
+    pub fn poll<F: Future>(&mut self, fut: std::pin::Pin<&mut F>) -> Poll<F::Output> {
+        fut.poll(&mut self.cx)
     }
 
     pub fn channel<T>(&mut self) -> (Local<T>, Remote<T>) {
