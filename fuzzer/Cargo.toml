@@ -1,10 +1,9 @@
-[workspace]
-members = ["fuzzer"]
-
 [package]
-name = "stream-patterns"
-version = "0.2.8"
+name = "fuzzer"
+version = "0.0.0"
 edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 async-channel = "1.9.0"
@@ -12,7 +11,4 @@ futures-util = { version = "0.3.29", features = [
     "sink",
     "std",
 ], default-features = false }
-
-[dev-dependencies]
-futures-channel = "0.3.29"
-fuzzer.path = "fuzzer"
+rand = "0.8.5"
