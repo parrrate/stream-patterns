@@ -254,3 +254,14 @@ impl Future for Event {
         }
     }
 }
+
+pub struct AtMost(pub usize);
+
+impl Iterator for AtMost {
+    type Item = ();
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0 = self.0.checked_sub(1).expect("timed out");
+        Some(())
+    }
+}
