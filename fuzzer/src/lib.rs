@@ -88,6 +88,38 @@ impl Runner {
         self.set.pop().is_some()
     }
 
+    pub fn pending_in<F: Future>(
+        &mut self,
+        steps: usize,
+        cx: &mut std::task::Context<'_>,
+        mut fut: std::pin::Pin<&mut F>,
+    ) {
+        for _ in 0..steps {
+            if fut.as_mut().poll(cx).is_ready() {
+                panic!("unexpected ready");
+            }
+            if !self.step() {
+                return;
+            }
+        }
+        panic!("timed out")
+    }
+
+    pub fn ready_in<F: Future>(
+        &mut self,
+        steps: usize,
+        cx: &mut std::task::Context<'_>,
+        mut fut: std::pin::Pin<&mut F>,
+    ) -> F::Output {
+        for _ in 0..steps {
+            if let Poll::Ready(value) = fut.as_mut().poll(cx) {
+                return value;
+            }
+            assert!(self.step(), "cannot proceed")
+        }
+        panic!("timed out")
+    }
+
     pub fn channel<T>(&mut self) -> (Local<T>, Remote<T>) {
         let (local_sender, foreign_receiver) = unbounded();
         let (foreign_sender, local_receiver) = unbounded();

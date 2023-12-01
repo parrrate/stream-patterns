@@ -6,7 +6,7 @@ use std::{
 use async_channel::bounded;
 use common::{channel_pair, Channel};
 use futures_util::{Future, StreamExt};
-use fuzzer::{AtMost, Local, Runner};
+use fuzzer::{Local, Runner};
 use stream_patterns::{promise::qpromise, push};
 
 mod common;
@@ -45,13 +45,9 @@ fn push_one_seed(seed: u64) {
     ready_s.try_send(pusher).unwrap();
     let (promise, future) = qpromise();
     msg_s.try_send((426, promise)).unwrap();
+    runner.pending_in(100, &mut cx, pushing.as_mut());
     msg_s.close();
-    for _ in AtMost(100) {
-        if pushing.as_mut().poll(&mut cx).is_ready() {
-            break;
-        }
-        assert!(runner.step())
-    }
+    runner.ready_in(100, &mut cx, pushing.as_mut());
     assert!(pin!(future.wait()).poll(&mut cx).is_ready());
     assert!(done_r.try_recv().is_err());
     assert_eq!(puller.recv(), Some(426));

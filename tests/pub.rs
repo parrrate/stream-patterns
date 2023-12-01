@@ -6,7 +6,7 @@ use std::{
 use async_channel::bounded;
 use common::{channel_pair, Channel};
 use futures_util::{Future, StreamExt};
-use fuzzer::{AtMost, Local, Runner};
+use fuzzer::{Local, Runner};
 use stream_patterns::{promise::qpromise, r#pub};
 
 mod common;
@@ -54,13 +54,9 @@ fn pub_two_seed(seed: u64) {
     ready_s.try_send(publisher1).unwrap();
     let (promise, future) = qpromise();
     msg_s.try_send((426, promise)).unwrap();
+    runner.pending_in(100, &mut cx, publishing.as_mut());
     msg_s.close();
-    for _ in AtMost(100) {
-        if publishing.as_mut().poll(&mut cx).is_ready() {
-            break;
-        }
-        assert!(runner.step())
-    }
+    runner.ready_in(100, &mut cx, publishing.as_mut());
     assert!(pin!(future.wait()).poll(&mut cx).is_ready());
     assert!(done_r.try_recv().unwrap().is_none());
     assert!(done_r.try_recv().unwrap().is_none());
