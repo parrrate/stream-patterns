@@ -18,6 +18,19 @@ enum State<S: PatternStream> {
     Receiving(S::Msg, QPromise<S::Msg>, S, Sender<Unlock>),
 }
 
+impl<S: PatternStream> core::fmt::Display for State<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            State::Pending => write!(f, "pending"),
+            State::Msg(_, _) => write!(f, "msg"),
+            State::Stream(_, _) => write!(f, "stream"),
+            State::Readying(_, _, _, _) => write!(f, "readying"),
+            State::Sending(_, _, _, _) => write!(f, "sending"),
+            State::Receiving(_, _, _, _) => write!(f, "receiving"),
+        }
+    }
+}
+
 impl<S: PatternStream> Default for State<S> {
     fn default() -> Self {
         Self::Pending
@@ -160,7 +173,7 @@ impl<S: PatternStream> Req<S> {
                         }
                     }
                     Poll::Pending => {
-                        self.state = State::Sending(msg, promise, stream, unlock_s);
+                        self.state = State::Readying(msg, promise, stream, unlock_s);
                         StatePoll::Poll(Poll::Pending)
                     }
                 }
