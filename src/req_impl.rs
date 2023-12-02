@@ -95,16 +95,23 @@ impl<S: PatternStream> Req<S> {
         }
     }
 
+    /// Post-condition: `self.streams` is either done or pending
     fn poll_stream(&mut self, cx: &mut std::task::Context<'_>) -> PrePoll {
         match (self.state.take(), self.streams.poll_next_unpin(cx)) {
             (State::Pending, Poll::Ready(Some((stream, unlock_s)))) => {
                 self.state = State::Stream(stream, unlock_s);
+                if let Poll::Ready(Some(_)) = self.streams.poll_next_unpin(cx) {
+                    panic!("invalid state (stream yielded before unlock)");
+                }
                 PrePoll::Continue
             }
             (State::Pending, Poll::Ready(None)) => PrePoll::Break,
             (State::Pending, Poll::Pending) => PrePoll::Pending,
             (State::Msg(msg, promise), Poll::Ready(Some((stream, unlock_s)))) => {
                 self.state = State::Readying(msg, promise, stream, unlock_s);
+                if let Poll::Ready(Some(_)) = self.streams.poll_next_unpin(cx) {
+                    panic!("invalid state (stream yielded before unlock)");
+                }
                 PrePoll::Continue
             }
             (State::Msg(_, _), Poll::Ready(None)) => PrePoll::Break,

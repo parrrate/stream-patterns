@@ -119,10 +119,14 @@ impl<S: PatternStream> Sink<S::Msg> for Push<S> {
 }
 
 impl<S: PatternStream> Push<S> {
+    /// Post-condition: `self.streams` is either done or pending
     fn poll_stream(&mut self, cx: &mut std::task::Context<'_>) -> StatePoll<S> {
         match (self.state.take(), self.streams.poll_next_unpin(cx)) {
             (State::Pending, Poll::Ready(Some((stream, unlock_s)))) => {
                 self.state = State::Stream(stream, unlock_s);
+                if let Poll::Ready(Some(_)) = self.streams.poll_next_unpin(cx) {
+                    panic!("invalid state (stream yielded before unlock)");
+                }
                 StatePoll::Poll(Poll::Ready(Ok(())))
             }
             (State::Pending, Poll::Pending | Poll::Ready(None)) => {
@@ -130,6 +134,9 @@ impl<S: PatternStream> Push<S> {
             }
             (State::Msg(msg), Poll::Ready(Some((stream, unlock_s)))) => {
                 self.state = State::Readying(msg, stream, unlock_s);
+                if let Poll::Ready(Some(_)) = self.streams.poll_next_unpin(cx) {
+                    panic!("invalid state (stream yielded before unlock)");
+                }
                 StatePoll::Continue
             }
             (State::Msg(msg), Poll::Ready(None)) => {
