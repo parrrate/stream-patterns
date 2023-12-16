@@ -86,16 +86,15 @@ impl<'a, T, U> Future for Request<'a, T, U> {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Self::Output> {
-        match self.send.take() {
-            Some(mut send) => match send.poll_unpin(cx) {
+        if let Some(mut send) = self.send.take() {
+            match send.poll_unpin(cx) {
                 Poll::Ready(Ok(())) => {}
                 Poll::Ready(Err(_)) => return Poll::Ready(None),
                 Poll::Pending => {
                     self.send = Some(send);
                     return Poll::Pending;
                 }
-            },
-            None => {}
+            }
         }
         self.future.poll_unpin(cx)
     }
