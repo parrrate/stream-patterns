@@ -8,7 +8,7 @@
 use std::task::Poll;
 
 use async_channel::{bounded, Receiver, Sender};
-use futures_util::{Future, StreamExt};
+use futures_util::{Future, FutureExt, StreamExt};
 
 pub struct QPromise<T = ()> {
     sender: Sender<T>,
@@ -72,19 +72,53 @@ pub fn qpromise<T>() -> (QPromise<T>, QFuture<T>) {
     (QPromise { sender }, QFuture { receiver })
 }
 
-/// Request-reply communication.
-pub struct QSender<T, U = ()> {
-    sender: Sender<(T, QPromise<U>)>,
+pub struct Request<'a, T, U> {
+    send: Option<async_channel::Send<'a, (T, QPromise<U>)>>,
+    future: QFuture<U>,
 }
 
-impl<T, U> QSender<T, U> {
-    pub fn new(sender: Sender<(T, QPromise<U>)>) -> Self {
-        Self { sender }
-    }
+impl<'a, T, U> Unpin for Request<'a, T, U> {}
 
-    pub async fn request(&self, msg: T) -> Option<U> {
+impl<'a, T, U> Future for Request<'a, T, U> {
+    type Output = Option<U>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        match self.send.take() {
+            Some(mut send) => match send.poll_unpin(cx) {
+                Poll::Ready(Ok(())) => {}
+                Poll::Ready(Err(_)) => return Poll::Ready(None),
+                Poll::Pending => {
+                    self.send = Some(send);
+                    return Poll::Pending;
+                }
+            },
+            None => {}
+        }
+        self.future.poll_unpin(cx)
+    }
+}
+
+pub trait RequestSender {
+    type T;
+    type U;
+
+    fn request(&self, msg: Self::T) -> Request<'_, Self::T, Self::U>;
+}
+
+impl<T, U> RequestSender for Sender<(T, QPromise<U>)> {
+    type T = T;
+    type U = U;
+
+    fn request(&self, msg: Self::T) -> Request<'_, Self::T, Self::U> {
         let (promise, future) = qpromise();
-        let _ = self.sender.send((msg, promise)).await;
-        future.await
+        Request {
+            send: Some(self.send((msg, promise))),
+            future,
+        }
     }
 }
+
+pub type QSender<T, U> = Sender<(T, QPromise<U>)>;

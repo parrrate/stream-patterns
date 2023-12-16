@@ -7,7 +7,7 @@ use futures_util::{
 };
 
 use crate::{
-    promise::{QPromise, QSender},
+    promise::{QPromise, RequestSender},
     Done, PatternStream,
 };
 
@@ -93,9 +93,8 @@ impl<S: PatternStream> Rep<S> {
     }
 
     async fn run(&mut self, request_s: Sender<(S::Msg, QPromise<S::Msg>)>) {
-        let request_q = QSender::new(request_s);
         while let Some((mut stream, msg)) = self.next().await {
-            let msg = match request_q.request(msg).await {
+            let msg = match request_s.request(msg).await {
                 Some(msg) => msg,
                 None => {
                     let r = stream.close().await;
