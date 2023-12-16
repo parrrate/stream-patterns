@@ -28,7 +28,7 @@ fn pub_two() {
     msg_s.try_send((426, promise)).unwrap();
     msg_s.close();
     assert!(publishing.as_mut().poll(&mut cx).is_ready());
-    assert!(pin!(future.wait()).poll(&mut cx).is_ready());
+    assert!(pin!(future).poll(&mut cx).is_ready());
     assert!(done_r.try_recv().unwrap().is_none());
     assert!(done_r.try_recv().unwrap().is_none());
     assert_eq!(
@@ -56,7 +56,7 @@ fn pub_two_seed(seed: u64) {
     runner.pending_in(100, publishing.as_mut());
     msg_s.close();
     runner.ready_in(100, publishing.as_mut());
-    assert!(runner.poll(pin!(future.wait())).is_ready());
+    assert!(runner.poll(pin!(future)).is_ready());
     assert!(done_r.try_recv().unwrap().is_none());
     assert!(done_r.try_recv().unwrap().is_none());
     assert_eq!(subscriber0.recv(), Some(426));

@@ -26,7 +26,7 @@ fn push_one() {
     msg_s.try_send((426, promise)).unwrap();
     msg_s.close();
     assert!(pushing.as_mut().poll(&mut cx).is_ready());
-    assert!(pin!(future.wait()).poll(&mut cx).is_ready());
+    assert!(pin!(future).poll(&mut cx).is_ready());
     assert!(done_r.try_recv().is_err());
     assert_eq!(
         pin!(puller.next()).poll(&mut cx),
@@ -47,7 +47,7 @@ fn push_one_seed(seed: u64) {
     runner.pending_in(100, pushing.as_mut());
     msg_s.close();
     runner.ready_in(100, pushing.as_mut());
-    assert!(runner.poll(pin!(future.wait())).is_ready());
+    assert!(runner.poll(pin!(future)).is_ready());
     assert!(done_r.try_recv().is_err());
     assert_eq!(puller.recv(), Some(426));
 }

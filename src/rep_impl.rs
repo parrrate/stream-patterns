@@ -96,8 +96,8 @@ impl<S: PatternStream> Rep<S> {
         let request_q = QSender::new(request_s);
         while let Some((mut stream, msg)) = self.next().await {
             let msg = match request_q.request(msg).await {
-                Ok(msg) => msg,
-                Err(_) => {
+                Some(msg) => msg,
+                None => {
                     let r = stream.close().await;
                     let _ = self.done_s.send(r.err()).await;
                     continue;

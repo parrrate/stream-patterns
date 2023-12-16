@@ -5,7 +5,10 @@
 //! * <https://docs.rs/futures/latest/futures/channel/oneshot/index.html>
 //! * <https://docs.rs/tokio/latest/tokio/sync/oneshot/index.html>
 
-use async_channel::{bounded, Receiver, RecvError, Sender};
+use std::task::Poll;
+
+use async_channel::{bounded, Receiver, Sender};
+use futures_util::{Future, StreamExt};
 
 pub struct QPromise<T = ()> {
     sender: Sender<T>,
@@ -46,12 +49,21 @@ impl QPromise {
 }
 
 impl<T> QFuture<T> {
-    pub async fn wait(self) -> Result<T, RecvError> {
-        self.receiver.recv().await
-    }
-
     pub fn new(receiver: Receiver<T>) -> Self {
         Self { receiver }
+    }
+}
+
+impl<T> Unpin for QFuture<T> {}
+
+impl<T> Future for QFuture<T> {
+    type Output = Option<T>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        self.receiver.poll_next_unpin(cx)
     }
 }
 
@@ -70,9 +82,9 @@ impl<T, U> QSender<T, U> {
         Self { sender }
     }
 
-    pub async fn request(&self, msg: T) -> Result<U, RecvError> {
+    pub async fn request(&self, msg: T) -> Option<U> {
         let (promise, future) = qpromise();
         let _ = self.sender.send((msg, promise)).await;
-        future.wait().await
+        future.await
     }
 }
