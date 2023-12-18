@@ -31,6 +31,7 @@ fn pub_two() {
     assert!(pin!(future).poll(&mut cx).is_ready());
     assert!(done_r.try_recv().unwrap().is_none());
     assert!(done_r.try_recv().unwrap().is_none());
+    assert!(done_r.try_recv().is_err());
     assert_eq!(
         pin!(subscriber0.next()).poll(&mut cx),
         Poll::Ready(Some(Ok(426)))
@@ -59,6 +60,7 @@ fn pub_two_seed(seed: u64) {
     assert!(runner.poll(pin!(future)).is_ready());
     assert!(done_r.try_recv().unwrap().is_none());
     assert!(done_r.try_recv().unwrap().is_none());
+    assert!(done_r.try_recv().is_err());
     assert_eq!(subscriber0.recv(), Some(426));
     assert_eq!(subscriber1.recv(), Some(426));
 }

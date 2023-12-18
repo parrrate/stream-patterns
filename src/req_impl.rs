@@ -82,7 +82,10 @@ impl<S: PatternStream> Req<S> {
                     self.state = State::Readying(msg, promise, stream, unlock_s);
                     PrePoll::Continue
                 }
-                Poll::Ready(None) => PrePoll::Break,
+                Poll::Ready(None) => {
+                    self.state = State::Stream(stream, unlock_s);
+                    PrePoll::Break
+                }
                 Poll::Pending => {
                     self.state = State::Stream(stream, unlock_s);
                     PrePoll::Pending
@@ -289,8 +292,7 @@ impl<S: PatternStream> Req<S> {
             | State::Readying(_, _, stream, _)
             | State::Sending(_, _, stream, _)
             | State::Receiving(_, _, stream, _) => {
-                let mut stream = stream;
-                let _ = stream.close().await;
+                self.streams.add(stream);
             }
         }
         self.streams.close().await;

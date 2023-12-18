@@ -124,12 +124,12 @@ impl<S: PatternStream> PushStreams<S> {
 
     pub(crate) async fn close(&mut self) {
         let mut futures = FuturesUnordered::new();
-        for stream in self.select.iter_mut() {
-            if let Some(ref mut stream) = stream.stream {
-                futures.push(stream.close());
-            }
+        for mut stream in self.drain() {
+            futures.push(async move { stream.close().await });
         }
-        while futures.next().await.is_some() {}
+        while let Some(done) = futures.next().await {
+            self.done(done.err());
+        }
         drop(futures);
         self.select.clear();
     }

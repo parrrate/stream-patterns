@@ -28,6 +28,7 @@ fn pull_one() {
     drop(pusher);
     assert!(pulling.as_mut().poll(&mut cx).is_ready());
     assert!(done_r.try_recv().unwrap().is_none());
+    assert!(done_r.try_recv().is_err());
 }
 
 fn pull_one_seed(seed: u64) {
@@ -47,6 +48,7 @@ fn pull_one_seed(seed: u64) {
     drop(pusher);
     runner.ready_in(100, pulling.as_mut());
     assert!(done_r.try_recv().unwrap().is_none());
+    assert!(done_r.try_recv().is_err());
 }
 
 #[test]

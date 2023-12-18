@@ -35,6 +35,7 @@ fn rep_one() {
     drop(requester);
     assert!(replying.as_mut().poll(&mut cx).is_ready());
     assert!(done_r.try_recv().unwrap().is_none());
+    assert!(done_r.try_recv().is_err());
 }
 
 fn rep_one_seed(seed: u64) {
@@ -55,6 +56,7 @@ fn rep_one_seed(seed: u64) {
     drop(requester);
     runner.ready_in(100, replying.as_mut());
     assert!(done_r.try_recv().unwrap().is_none());
+    assert!(done_r.try_recv().is_err());
 }
 
 #[test]

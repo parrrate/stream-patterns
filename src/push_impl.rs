@@ -99,7 +99,14 @@ impl<S: PatternStream> Sink<S::Msg> for Push<S> {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
+        eprintln!("CLOSE");
         ready!(self.as_mut().poll_flush(cx))?;
+        match self.state.take() {
+            State::Pending | State::Msg(_) => {}
+            State::Stream(stream, _)
+            | State::Readying(_, stream, _)
+            | State::Sending(_, stream, _) => self.streams.add(stream),
+        }
         for stream in self.streams.drain() {
             self.closing.push(OwnedClose(stream));
         }
