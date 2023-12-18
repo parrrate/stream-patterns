@@ -54,7 +54,10 @@ impl<S: PatternStream> Stream for PushStream<S> {
                             break Poll::Ready(Some((stream, self.unlock_s.clone())));
                         }
                         Poll::Ready(None) => break Poll::Ready(None),
-                        Poll::Pending => break Poll::Pending,
+                        Poll::Pending => {
+                            self.stream = Some(stream);
+                            break Poll::Pending;
+                        }
                     },
                 },
                 None => break Poll::Ready(None),
