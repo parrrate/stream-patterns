@@ -32,7 +32,7 @@ fn req_one() {
     );
     assert!(pin!(replier.send(216)).poll(&mut cx).is_ready());
     assert!(requesting.as_mut().poll(&mut cx).is_ready());
-    assert_eq!(pin!(future).poll(&mut cx), Poll::Ready(Some(216)));
+    assert_eq!(pin!(future).poll(&mut cx), Poll::Ready(Ok(216)));
     assert!(done_r.try_recv().unwrap().is_none());
     assert!(done_r.try_recv().is_err());
 }
@@ -52,7 +52,7 @@ fn req_one_seed(seed: u64) {
     assert_eq!(replier.recv(), Some(426));
     replier.send(216);
     runner.ready_in(100, requesting.as_mut());
-    assert_eq!(runner.poll(pin!(future)), Poll::Ready(Some(216)));
+    assert_eq!(runner.poll(pin!(future)), Poll::Ready(Ok(216)));
     assert!(done_r.try_recv().unwrap().is_none());
     assert!(done_r.try_recv().is_err());
 }

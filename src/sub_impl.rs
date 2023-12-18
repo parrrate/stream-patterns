@@ -79,7 +79,7 @@ impl<S: PatternStream> Sub<S> {
 
     async fn run(&mut self, msg_s: Sender<(S::Msg, QPromise)>) {
         while let Some(msg) = self.next().await {
-            if msg_s.request(msg).await.is_none() {
+            if msg_s.request(msg).await.is_err() {
                 break;
             }
         }

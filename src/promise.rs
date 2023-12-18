@@ -5,10 +5,23 @@
 //! * <https://docs.rs/futures/latest/futures/channel/oneshot/index.html>
 //! * <https://docs.rs/tokio/latest/tokio/sync/oneshot/index.html>
 
-use std::task::Poll;
+use std::{fmt::Display, task::Poll};
 
 use async_channel::{bounded, Receiver, Sender};
 use futures_util::{Future, FutureExt, StreamExt};
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Error;
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "promise error")
+    }
+}
+
+impl std::error::Error for Error {}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct QPromise<T = ()> {
     sender: Sender<T>,
@@ -57,13 +70,15 @@ impl<T> QFuture<T> {
 impl<T> Unpin for QFuture<T> {}
 
 impl<T> Future for QFuture<T> {
-    type Output = Option<T>;
+    type Output = Result<T>;
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Self::Output> {
-        self.receiver.poll_next_unpin(cx)
+        self.receiver
+            .poll_next_unpin(cx)
+            .map(|value| value.ok_or(Error))
     }
 }
 
@@ -80,7 +95,7 @@ pub struct Request<'a, T, U> {
 impl<'a, T, U> Unpin for Request<'a, T, U> {}
 
 impl<'a, T, U> Future for Request<'a, T, U> {
-    type Output = Option<U>;
+    type Output = Result<U>;
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
@@ -89,7 +104,7 @@ impl<'a, T, U> Future for Request<'a, T, U> {
         if let Some(mut send) = self.send.take() {
             match send.poll_unpin(cx) {
                 Poll::Ready(Ok(())) => {}
-                Poll::Ready(Err(_)) => return Poll::Ready(None),
+                Poll::Ready(Err(_)) => return Poll::Ready(Err(Error)),
                 Poll::Pending => {
                     self.send = Some(send);
                     return Poll::Pending;
