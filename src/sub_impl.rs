@@ -1,102 +1,23 @@
-use std::task::Poll;
-
 use async_channel::{Receiver, Sender};
-use futures_util::{
-    stream::{FuturesUnordered, SelectAll},
-    SinkExt, Stream, StreamExt,
-};
+use futures_util::{SinkExt, StreamExt};
+use ruchei::multicast::ignore::MulticastIgnore;
 
 use crate::{
     promise::{QPromise, RequestSender},
-    Done, PatternStream,
+    Done, DoneCallback, PatternStream,
 };
-
-struct SubStream<S: PatternStream> {
-    stream: S,
-    done_s: Sender<Done<S>>,
-}
-
-impl<S: PatternStream> Unpin for SubStream<S> {}
-
-impl<S: PatternStream> Stream for SubStream<S> {
-    type Item = S::Msg;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        match self.stream.poll_next_unpin(cx) {
-            Poll::Ready(Some(Ok(msg))) => Poll::Ready(Some(msg)),
-            Poll::Ready(Some(Err(e))) => {
-                let _ = self.done_s.try_send(Some(e));
-                Poll::Ready(None)
-            }
-            Poll::Ready(None) => {
-                let _ = self.done_s.try_send(None);
-                Poll::Ready(None)
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-struct Sub<S: PatternStream> {
-    select: SelectAll<SubStream<S>>,
-    ready_r: Receiver<S>,
-    done_s: Sender<Done<S>>,
-}
-
-impl<S: PatternStream> Unpin for Sub<S> {}
-
-impl<S: PatternStream> Stream for Sub<S> {
-    type Item = S::Msg;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        while let Poll::Ready(Some(stream)) = self.ready_r.poll_next_unpin(cx) {
-            let done_s = self.done_s.clone();
-            self.select.push(SubStream { stream, done_s });
-        }
-        match self.select.poll_next_unpin(cx) {
-            Poll::Ready(None) if !self.ready_r.is_closed() => Poll::Pending,
-            poll => poll,
-        }
-    }
-}
-
-impl<S: PatternStream> Sub<S> {
-    async fn close(&mut self) {
-        let mut futures = FuturesUnordered::new();
-        for stream in self.select.iter_mut() {
-            futures.push(stream.stream.close());
-        }
-        while futures.next().await.is_some() {}
-        drop(futures);
-        self.select.clear();
-    }
-
-    async fn run(&mut self, msg_s: Sender<(S::Msg, QPromise)>) {
-        while let Some(msg) = self.next().await {
-            if msg_s.request(msg).await.is_err() {
-                break;
-            }
-        }
-        self.close().await;
-    }
-}
 
 pub async fn sub<S: PatternStream>(
     ready_r: Receiver<S>,
     done_s: Sender<Done<S>>,
     msg_s: Sender<(S::Msg, QPromise)>,
 ) {
-    Sub {
-        select: SelectAll::new(),
-        ready_r,
-        done_s,
+    let mut stream = ready_r.multicast_ignore(DoneCallback::new(done_s));
+    while let Some(msg) = stream.next().await {
+        let msg = msg.unwrap_or_else(|e| match e {});
+        if msg_s.request(msg).await.is_err() {
+            break;
+        }
     }
-    .run(msg_s)
-    .await
+    stream.close().await.unwrap_or_else(|e| match e {});
 }

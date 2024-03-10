@@ -7,12 +7,14 @@ version = "0.6.0"
 edition = "2021"
 
 [dependencies]
+ruchei = { git = "https://github.com/parrrate/ruchei.git", rev = "077d2af569e4a2352089e708ee36841c3f7519f2" }
+
 async-channel = "1.9.0"
-futures-util = { version = "0.3.29", features = [
+futures-util = { version = "0.3.30", features = [
     "sink",
     "std",
 ], default-features = false }
 
 [dev-dependencies]
-futures-channel = "0.3.29"
+futures-channel = "0.3.30"
 fuzzer.path = "fuzzer"

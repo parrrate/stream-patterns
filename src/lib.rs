@@ -52,3 +52,34 @@ enum PrePoll {
     Break,
     Continue,
 }
+
+#[derive(Debug)]
+struct DoneCallback<E> {
+    sender: Sender<Option<E>>,
+}
+
+impl<E> DoneCallback<E> {
+    pub fn new(sender: Sender<Option<E>>) -> Self {
+        Self { sender }
+    }
+}
+
+impl<E> Clone for DoneCallback<E> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+        }
+    }
+}
+
+impl<E> ruchei::callback::OnClose<E> for DoneCallback<E> {
+    fn on_close(&self, done: Option<E>) {
+        let _ = self.sender.try_send(done);
+    }
+}
+
+impl<E> From<Sender<Option<E>>> for DoneCallback<E> {
+    fn from(sender: Sender<Option<E>>) -> Self {
+        Self::new(sender)
+    }
+}
