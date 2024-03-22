@@ -7,7 +7,7 @@ version = "0.6.0"
 edition = "2021"
 
 [dependencies]
-ruchei = { git = "https://github.com/parrrate/ruchei.git", rev = "0a9eee26b08b2ed4d5019c761e9ed4171f597384" }
+ruchei = "0.0.72"
 
 async-channel = "1.9.0"
 futures-util = { version = "0.3.30", features = [
